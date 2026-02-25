@@ -1,0 +1,256 @@
+- hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Run terraform init
+      command: terraform init
+      
+    - name: Run terraform apply
+      command: terraform apply -auto-approve
+
+    # -------- Get Outputs --------
+
+    - name: Get webserver IPs
+      command: terraform output -json webserver_ips
+      register: web_ips_raw
+
+    - name: Get loadbalancer IP
+      command: terraform output -json loadbalancer_ip
+      register: lb_ip_raw
+
+    - name: Get backup IP
+      command: terraform output -json backup_ip
+      register: backup_ip_raw
+
+    - name: Get database IPs
+      command: terraform output -json database_ips
+      register: db_ips_raw
+
+    # -------- Convert JSON --------
+
+    - set_fact:
+        web_ips: "{{ web_ips_raw.stdout | from_json }}"
+        lb_ip: "{{ lb_ip_raw.stdout | from_json }}"
+        backup_ip: "{{ backup_ip_raw.stdout | from_json }}"
+        db_ips: "{{ db_ips_raw.stdout | from_json }}"
+
+    # -------- Add Webservers --------
+
+    - name: Add webservers to dynamic group
+      add_host:
+        name: "{{ item }}"
+        groups: webserver_hosts
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+      loop: "{{ web_ips }}"
+
+    # -------- Add Loadbalancer --------
+
+    - name: Add loadbalancer
+      add_host:
+        name: "{{ item }}"
+        groups: loadbalancer_hosts
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+      loop: "{{lb_ip}}"
+
+    # -------- Add Backup --------
+
+    - name: Add backup
+      add_host:
+        name: "{{ item }}"
+        groups: backup_hosts
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+      loop: "{{backup_ip}}"
+
+    - name: Save backup host to inventory file
+      copy:
+        content: |
+          [backup_hosts]
+          {{ backup_ip | join('\n') }}
+
+        dest: ~/Oblig1/inventory/backup_inventory.ini
+
+    # -------- Add Databases --------
+
+    - name: Add databases
+      add_host:
+        name: "{{ item }}"
+        groups: database_hosts
+        ansible_user: ubuntu
+        ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+      loop: "{{ db_ips }}"
+
+
+
+
+
+
+
+# Two webservers, each with a single CPU, with apache2, php and php-mysql libraries
+- hosts: webserver_hosts
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Wait for SSH to be ready
+      wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    - name: Ping webservers
+      ping:
+  
+    - name: Update apt cache
+      apt:
+        update_cache: true
+    
+    - name: Install Apache2, php, php-cli and php-sql server
+      apt:
+        name: 
+          - apache2
+          - php
+          - php-cli
+          - php-mysql
+        state: present
+
+    - name: Ensure Apache2 is running and enabled
+      service:
+        name: apache2
+        state: started
+        enabled: true    
+    
+    - name: Create webadmins group
+      group:
+        name: webadmins
+        state: present
+
+    - name: Create users tom, brady, janet
+      user:
+        name: "{{ item }}"
+        groups: webadmins,sudo
+        append: yes
+        shell: /bin/bash
+        state: present
+      loop:
+        - tom
+        - brady
+        - janet
+
+
+
+- hosts: loadbalancer_hosts
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Wait for SSH to be ready
+      wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    - name: Ping loadbalancer servers
+      ping:
+  
+    - name: Update apt cache
+      apt:
+        update_cache: true
+
+    - name: Fetch universe repository
+      apt_repository:
+        repo: "deb http://archive.ubuntu.com/ubuntu jammy universe"
+        state: present
+
+    - name: Install pound 
+      apt:
+        name: pound
+        state: present
+
+    - name: Create webadmins group
+      group:
+        name: webadmins
+        state: present
+
+    - name: Create users tom, brady, janet
+      user:
+        name: "{{ item }}"
+        groups: webadmins,sudo
+        append: yes
+        shell: /bin/bash
+        state: present
+      loop:
+        - tom
+        - brady
+        - janet
+
+
+- hosts: backup_hosts
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Wait for SSH to be ready
+      wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    - name: Ping backup servers
+      ping:
+  
+    - name: Update apt cache
+      apt:
+        update_cache: true
+
+
+- hosts: database_hosts
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Wait for SSH to be ready
+      wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    - name: Ping database servers
+      ping:
+  
+    - name: Update apt cache
+      apt:
+        update_cache: true
+
+    - name: Install mySQL
+      apt:
+        name: mysql-server
+        state: present
+
+    - name: Create webadmins group
+      group:
+        name: webadmins
+        state: present
+
+    - name: Create users tom, brady, janet
+      user:
+        name: "{{ item }}"
+        groups: webadmins,sudo
+        append: yes
+        shell: /bin/bash
+        state: present
+      loop:
+        - tom
+        - brady
+        - janet
+
+
+    
+
+
+
+
+
+    

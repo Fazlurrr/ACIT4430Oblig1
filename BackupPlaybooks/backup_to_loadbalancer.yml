@@ -1,0 +1,22 @@
+- hosts: backup_hosts
+  become: true
+
+  tasks:
+    - name: Wait for SSH to be ready
+      wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    - name: Update apt cache
+      apt:
+        update_cache: true
+
+    - name: Add universe repository
+      apt_repository:
+        repo: "deb http://archive.ubuntu.com/ubuntu jammy universe"
+        state: present
+
+    - name: Install pound load balancer
+      apt:
+        name: pound
+        state: present
